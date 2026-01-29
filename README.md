@@ -139,7 +139,7 @@ streamlit run app.py
 ## 🌐 Live Demo  
 
 Live Application Link:  
-(https://digital-footprint-risk-analyzer-q7eevm9rwhneovjs6tcjtq.streamlit.app/)
+https://digital-footprint-risk-analyzer-xdsk6fwmer835sq8l9neup.streamlit.app/
 
 ---
 
