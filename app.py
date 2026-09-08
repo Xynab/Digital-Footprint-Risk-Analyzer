@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import bcrypt
 
 # ------------------ File Paths ------------------
 
@@ -26,14 +27,23 @@ if not os.path.exists(HISTORY_FILE):
 # ------------------ Helper Functions ------------------
 
 def register_user(username, password):
+    """Register a new user with a bcrypt-hashed password.
+    Returns (success: bool, message: str)."""
     df = pd.read_csv(USERS_FILE)
-    df.loc[len(df)] = [username, password]
+    if (df["username"] == username).any():
+        return False, "Username already exists."
+    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    df.loc[len(df)] = [username, hashed]
     df.to_csv(USERS_FILE, index=False)
+    return True, "Registered successfully."
 
 def validate_user(username, password):
     df = pd.read_csv(USERS_FILE)
-    user = df[(df["username"] == username) & (df["password"] == password)]
-    return not user.empty
+    user = df[df["username"] == username]
+    if user.empty:
+        return False
+    stored_hash = user.iloc[0]["password"].encode("utf-8")
+    return bcrypt.checkpw(password.encode("utf-8"), stored_hash)
 
 def save_history(username, score, level):
     df = pd.read_csv(HISTORY_FILE)
@@ -73,8 +83,14 @@ if st.sidebar.button("Login"):
         st.sidebar.error("Invalid Credentials")
 
 if st.sidebar.button("Register"):
-    register_user(login_username, login_password)
-    st.sidebar.success("Registration Successful")
+    if not login_username or not login_password:
+        st.sidebar.error("Enter a username and password to register.")
+    else:
+        success, message = register_user(login_username, login_password)
+        if success:
+            st.sidebar.success(message)
+        else:
+            st.sidebar.error(message)
 
 if not st.session_state.logged_in:
     st.stop()

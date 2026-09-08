@@ -1,0 +1,10 @@
+# Sensitive / runtime data — never commit
+users/
+users.csv
+history/*.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
