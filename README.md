@@ -1,75 +1,38 @@
-# NexusFlow — AI Traffic Intelligence System
+# Digital Footprint Risk Analyzer
 
-A smart-city traffic control platform combining YOLOv8 vehicle detection, a Deep Q-Network for adaptive signal control, and a SUMO-based simulation environment for training — with a Next.js dashboard for live monitoring, video analysis, and a training console.
+A Streamlit app that scores a user's digital privacy risk from their self-reported online habits (screen time, profile visibility, 2FA, password strength, app permissions, breach exposure) using a trained classifier, blended with a rule-based username-safety check — with per-user login, feature-importance explainability, and risk history tracking.
 
 ---
 
-## What it does
+## How it works
 
-- **Vehicle detection** — uploads a traffic video, runs it through **YOLOv8** frame-by-frame, and returns per-lane vehicle counts, bounding boxes, and a traffic heatmap
-- **Signal optimization** — a **Deep Q-Network (PyTorch)** trained against a custom 10-dimensional state (per-lane queue length, per-lane wait time, current phase, time in phase) to decide whether to hold or switch a traffic signal, with a reward function that balances reduced wait time against unnecessary switching
-- **Emergency vehicle priority** — detects an emergency vehicle in a lane and overrides the signal decision to clear that direction
-- **SUMO simulation environment** — a full TraCI-based training environment (custom intersection network, traffic generator, reward shaping) used to train the DQN offline before deployment
-- **Live dashboard** — Next.js frontend with a digital-twin intersection view, analytics (reward/loss/epsilon curves), video analysis panel, and a training console
+**1. Risk model** — three classifiers (Random Forest, Gradient Boosting, Logistic Regression) are trained on a 1,000-row labeled dataset of digital-behavior features; the best performer by accuracy is selected and saved (`models/best_model.pkl`). On the dataset used here, **Logistic Regression** came out on top.
+
+**2. Username heuristic** — as a second, independent signal, the app scores the entered username itself: short length, presence of digits, or matching a common/default name (e.g. "admin", "test") each add to a risk penalty. This is deliberately simple and rule-based, not learned.
+
+**3. Final score** — the ML model's predicted probability of the highest-risk class is combined with the username penalty (capped at 100) to produce the final risk score and HIGH/MEDIUM/LOW label.
+
+**4. Explainability** — the app shows a horizontal bar chart of feature importances (`coef_` for the deployed Logistic Regression model) so a user can see which inputs drove their score. This is coefficient-based importance, not a SHAP/LIME explanation.
+
+**5. Accounts & history** — Streamlit-native login/register, with results logged per-user (`history/results.csv`) and shown back to them as a table.
 
 ## Tech stack
 
-**Backend:** FastAPI, PyTorch (DQN), Ultralytics YOLOv8, OpenCV, SUMO + TraCI, WebSockets (live streaming), NumPy/Pandas
+Streamlit, scikit-learn, pandas/NumPy, Plotly (gauge + bar charts), bcrypt (password hashing)
 
-**Frontend:** Next.js 14, React 18, TypeScript, Tailwind CSS, Recharts
+## Model performance
 
-## Architecture
-
-```
-backend/
-├── app/main.py                    # FastAPI app, router registration, startup checks
-├── app/api/
-│   ├── traffic_routes.py          # /api/traffic — signal optimization + AI explanations
-│   ├── training_routes.py         # /api/video — video upload + YOLO detection
-│   ├── video_routes.py            # /api/training — training console (see note below)
-│   └── websocket_routes.py        # live streaming to the dashboard
-├── app/models/dqn_agent.py        # DQN agent used by the live /api/traffic endpoint
-├── app/rl/                        # DQN agent + training manager used for offline SUMO training
-├── app/sumo/                      # TraCI environment, traffic generator, state manager
-├── app/vision/                    # YOLOv8 detector, tracker, lane counter, heatmap
-├── app/services/video_detector.py # YOLOv8 service backing the video-upload endpoint
-└── models/dqn_checkpoint.pth      # trained model weights from an offline SUMO training run
-
-frontend/
-└── src/app/                       # dashboard, simulation (digital twin), video-analysis,
-                                    # training-console, analytics, emergency, architecture pages
-```
-
-Note: `training_routes.py` and `video_routes.py` are named opposite to what they contain — the video-upload/YOLO endpoints live in `training_routes.py`, and the training-console endpoints live in `video_routes.py`. Worth a rename.
-
-## Honest status of the live demo
-
-The DQN, SUMO environment, and YOLO detector are all real, working implementations, and a real offline training run produced the saved checkpoint (`dqn_checkpoint.pth`). Two parts of the **live API** don't currently reflect that:
-
-- **`/api/traffic/optimize-signal`** tries to import `DQNAgent` from `app/rl/dqn_agent.py`, but that module only defines `EnhancedDQNAgent` — so the import fails and the endpoint silently falls back to a simple rule (send green to whichever of N/S or E/W has the larger vehicle count). The response still labels this `"policy": "DQN Reinforcement Learning"`, which is misleading; that needs fixing so it either loads the real trained agent or reports honestly that it's on the fallback.
-- **`/api/training/start`** (the "live training console") generates its reward/loss/epsilon curves with `random.uniform()` and a decay formula — it doesn't run the real `DQNAgent`/`SumoEnvironment`/replay buffer loop. It's a demo of what a training curve looks like, not real training telemetry. Actual training happens by running the RL/SUMO code directly (see below), not through this endpoint.
+~96% overall accuracy on the held-out test split. Worth noting: the dataset's risk classes are imbalanced, and the rarest class had very few test examples, so precision/recall on that class is noticeably weaker than the headline accuracy suggests — a realistic caveat for a small, single-source dataset rather than a production-scale one.
 
 ## Running locally
 
-**Backend**
 ```bash
-cd backend
 pip install -r requirements.txt
-python run.py
+streamlit run app.py
 ```
 
-**Offline DQN training (real, against SUMO)**
-```bash
-cd backend
-python -m app.sumo.environment   # requires SUMO installed and on PATH
-# or use app/rl/training_manager.py to run a full training loop
-```
+The dataset, training notebook (`train_model.ipynb`), evaluation notebook (`evaluate.ipynb`), and explainability notebook (`explainability.ipynb`) are included if you want to reproduce or retrain the model.
 
-**Frontend**
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## Security note
 
-API docs at `/docs` once the backend is running.
+User passwords are hashed with `bcrypt` before being stored (not plaintext). Login data (`users/`) and per-user history (`history/*.csv`) are excluded from version control via `.gitignore` — they're runtime data, not part of the app itself.
